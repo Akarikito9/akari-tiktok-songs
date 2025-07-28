@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>แผงควบคุม - สุ่มเพลง TikTok</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Kanit', sans-serif; }
+        .rarity-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; }
+        #video-preview-modal { display: none; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white p-4">
+
+    <!-- Main Layout -->
+    <div class="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        <!-- Left Column -->
+        <div class="flex flex-col gap-6">
+            <div>
+                <h1 class="text-3xl font-bold text-center text-cyan-400">แผงควบคุมสุ่มเพลง</h1>
+                <p class="text-center text-gray-400">จัดการเพลง, ดูสถานะ, และดูคลิปเต้นที่นี่</p>
+            </div>
+            <div id="status-container" class="p-4 rounded-lg text-center bg-gray-800">
+                <p class="text-lg font-semibold" id="status-text">กำลังเชื่อมต่อกับ TikFinity...</p>
+            </div>
+            <div class="p-4 bg-gray-800 rounded-lg">
+                <h2 class="text-xl font-semibold mb-4 text-yellow-400">ตั้งค่า & ทดสอบ ⚙️</h2>
+                <div class="mb-4">
+                    <label for="min-diamonds-input" class="block mb-2 text-sm font-medium">เพชรขั้นต่ำ</label>
+                    <input type="number" id="min-diamonds-input" value="1" min="1" class="w-full bg-gray-700 p-2 rounded-md">
+                </div>
+                <button id="test-spin-btn" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg">🚀 ทดสอบการสุ่ม</button>
+            </div>
+            <div class="p-4 bg-gray-800 rounded-lg">
+                <h2 class="text-xl font-semibold mb-4 text-green-400">เพิ่มเพลงใหม่ 🎶</h2>
+                <div class="space-y-3">
+                    <input type="text" id="item-name" placeholder="ชื่อเพลง" class="w-full bg-gray-700 p-2 rounded-md">
+                    <input type="text" id="song-url" placeholder="ลิงก์ไฟล์เพลง (.mp3) (สำหรับผู้ชม)" class="w-full bg-gray-700 p-2 rounded-md">
+                    <input type="text" id="dance-video-url" placeholder="ลิงก์วิดีโอเต้น (.mp4) (สำหรับคุณ)" class="w-full bg-gray-700 p-2 rounded-md">
+                    <input type="text" id="cover-url" placeholder="ลิงก์รูปปก (สำหรับตอนสุ่ม)" class="w-full bg-gray-700 p-2 rounded-md">
+                    <select id="item-rarity" class="w-full bg-gray-700 p-2 rounded-md">
+                        <option value="Common">Common (ทั่วไป)</option>
+                        <option value="Rare">Rare (หายาก)</option>
+                        <option value="Legendary">Legendary (ตำนาน)</option>
+                    </select>
+                    <button id="add-item-btn" class="w-full bg-green-500 hover:bg-green-600 font-bold py-2 px-4 rounded-lg">เพิ่มเพลงลงคลัง</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column -->
+        <div class="p-4 bg-gray-800 rounded-lg">
+            <h2 class="text-xl font-semibold mb-4 text-blue-400">คลังเพลงทั้งหมด 💿</h2>
+            <div id="item-library" class="space-y-2 max-h-[600px] overflow-y-auto pr-2"></div>
+        </div>
+    </div>
+
+    <!-- Private Video Preview Modal -->
+    <div id="video-preview-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+        <div class="bg-gray-800 p-4 rounded-lg shadow-2xl max-w-2xl w-full">
+            <h3 class="text-xl font-bold mb-2 text-yellow-400">วิดีโออ้างอิง (สำหรับคุณเท่านั้น)</h3>
+            <video id="private-video-player" class="w-full rounded-lg" playsinline muted></video>
+            <button id="close-video-btn" class="mt-4 w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">ปิด (หรือรอให้จบเอง)</button>
+        </div>
+    </div>
+
+    <script>
+        const rarities = {
+            Common:    { color: 'bg-gray-400', weight: 100 },
+            Rare:      { color: 'bg-blue-500', weight: 25 },
+            Legendary: { color: 'bg-yellow-500', weight: 5 }
+        };
+
+        const statusText = document.getElementById('status-text');
+        const minDiamondsInput = document.getElementById('min-diamonds-input');
+        const addItemBtn = document.getElementById('add-item-btn');
+        const itemLibrary = document.getElementById('item-library');
+        const testSpinBtn = document.getElementById('test-spin-btn');
+        const videoPreviewModal = document.getElementById('video-preview-modal');
+        const privateVideoPlayer = document.getElementById('private-video-player');
+        const closeVideoBtn = document.getElementById('close-video-btn');
+
+        let masterItemList = [];
+        let currentSpinId = null;
+
+        function addItem() {
+            const name = document.getElementById('item-name').value.trim();
+            const songUrl = document.getElementById('song-url').value.trim();
+            const danceVideoUrl = document.getElementById('dance-video-url').value.trim();
+            const cover = document.getElementById('cover-url').value.trim();
+            const rarity = document.getElementById('item-rarity').value;
+
+            if (!name || !songUrl || !cover || !danceVideoUrl) {
+                alert('กรุณากรอกข้อมูลให้ครบทุกช่อง');
+                return;
+            }
+
+            const newItem = { id: Date.now(), name, songUrl, danceVideoUrl, cover, rarity };
+            masterItemList.push(newItem);
+            saveItemsToLocalStorage();
+            renderLibrary();
+            document.getElementById('item-name').value = '';
+            document.getElementById('song-url').value = '';
+            document.getElementById('dance-video-url').value = '';
+            document.getElementById('cover-url').value = '';
+        }
+
+        function deleteItem(id) {
+            masterItemList = masterItemList.filter(item => item.id !== id);
+            saveItemsToLocalStorage();
+            renderLibrary();
+        }
+
+        function renderLibrary() {
+            itemLibrary.innerHTML = '';
+            masterItemList.forEach(item => {
+                const rarityInfo = rarities[item.rarity];
+                const itemEl = document.createElement('div');
+                itemEl.className = 'bg-gray-700 p-2 rounded-md flex items-center justify-between';
+                itemEl.innerHTML = `
+                    <div class="flex items-center overflow-hidden">
+                        <img src="${item.cover}" class="w-10 h-10 rounded-md mr-3 object-cover">
+                        <div class="truncate">
+                            <p class="font-semibold truncate">${item.name}</p>
+                            <p class="text-sm text-gray-400 flex items-center"><span class="rarity-dot ${rarityInfo.color}"></span>${item.rarity}</p>
+                        </div>
+                    </div>
+                    <button class="text-red-400 hover:text-red-600 font-bold px-2" onclick="deleteItem(${item.id})">&times;</button>
+                `;
+                itemLibrary.appendChild(itemEl);
+            });
+        }
+
+        function saveItemsToLocalStorage() {
+            localStorage.setItem('masterMusicList', JSON.stringify(masterItemList));
+        }
+
+        function loadItemsFromLocalStorage() {
+            const savedItems = localStorage.getItem('masterMusicList');
+            if (savedItems) masterItemList = JSON.parse(savedItems);
+            renderLibrary();
+        }
+
+        function selectWeightedRandomItem() {
+            if (masterItemList.length === 0) return null;
+            const pool = [];
+            masterItemList.forEach(item => {
+                const weight = rarities[item.rarity]?.weight || 1;
+                for (let i = 0; i < weight; i++) pool.push(item);
+            });
+            return pool[Math.floor(Math.random() * pool.length)];
+        }
+
+        function triggerSpin(senderInfo) {
+            if (masterItemList.length < 1) {
+                alert('กรุณาเพิ่มเพลงอย่างน้อย 1 เพลงก่อน!');
+                return;
+            }
+            const winningItem = selectWeightedRandomItem();
+            const spinnerItems = masterItemList.map(i => ({cover: i.cover, rarity: i.rarity}));
+            
+            const triggerId = Date.now();
+            currentSpinId = triggerId;
+
+            const payload = {
+                triggerId: triggerId,
+                winningItem: {
+                    name: winningItem.name,
+                    songUrl: winningItem.songUrl,
+                    cover: winningItem.cover,
+                    rarity: winningItem.rarity
+                },
+                spinnerItems: spinnerItems,
+                senderInfo: senderInfo
+            };
+            
+            localStorage.setItem('tiktok_spin_trigger', JSON.stringify(payload));
+
+            // CHANGED: Delay showing the private video by 1.5 seconds
+            setTimeout(() => {
+                privateVideoPlayer.src = winningItem.danceVideoUrl;
+                videoPreviewModal.style.display = 'flex';
+                privateVideoPlayer.play().catch(error => {
+                    console.warn("Private video autoplay was blocked by the browser.", error);
+                });
+            }, 3000); // 1500ms = 1.5 seconds
+        }
+        
+        function closePrivateVideo() {
+            videoPreviewModal.style.display = 'none';
+            privateVideoPlayer.pause();
+            privateVideoPlayer.src = '';
+            currentSpinId = null;
+        }
+
+        function connectToTikFinity() {
+            const socket = new WebSocket('ws://localhost:21213/');
+            socket.onopen = () => { statusText.textContent = '✅ เชื่อมต่อกับ TikFinity แล้ว!'; };
+            socket.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    if (message.event === 'gift') {
+                        const minDiamonds = parseInt(minDiamondsInput.value, 10) || 1;
+                        if (message.data.diamondCount >= minDiamonds) {
+                            triggerSpin({
+                                name: message.data.uniqueId,
+                                profilePictureUrl: message.data.profilePictureUrl,
+                                repeatCount: message.data.repeatCount,
+                                giftName: message.data.giftName
+                            });
+                        }
+                    }
+                } catch (error) { console.error('Error processing message:', error); }
+            };
+            socket.onclose = () => {
+                statusText.textContent = '❌ การเชื่อมต่อหลุด (กำลังพยายามใหม่...)';
+                setTimeout(connectToTikFinity, 5000);
+            };
+            socket.onerror = (error) => {
+                statusText.textContent = 'เกิดข้อผิดพลาดในการเชื่อมต่อ';
+                socket.close();
+            };
+        }
+
+        closeVideoBtn.addEventListener('click', closePrivateVideo);
+
+        testSpinBtn.addEventListener('click', () => triggerSpin({
+            name: 'ผู้ทดสอบระบบ',
+            profilePictureUrl: 'https://placehold.co/100x100/A855F7/FFFFFF?text=TEST',
+            repeatCount: 1,
+            giftName: 'ของขวัญทดสอบ'
+        }));
+        
+        addItemBtn.addEventListener('click', addItem);
+        
+        window.addEventListener('load', () => {
+            loadItemsFromLocalStorage();
+            connectToTikFinity();
+        });
+
+        setInterval(() => {
+            const endedId = localStorage.getItem('tiktok_spin_ended');
+            if (endedId && Number(endedId) === currentSpinId) {
+                closePrivateVideo();
+                localStorage.removeItem('tiktok_spin_ended');
+            }
+        }, 1000);
+
+    </script>
+</body>
+</html>
